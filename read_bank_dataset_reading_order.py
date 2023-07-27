@@ -354,6 +354,9 @@ def get_huggingface_dataset(num_examples = 8000):
     # from datasets import save_to_disk
     # save_to_disk(datasets_dict, dataset_config_name="my_dataset")
 
+
+
+
 def get_huggingface_dataset2(num_examples = 3000):
     import json,random
     from datasets import Dataset, DatasetDict
@@ -393,3 +396,82 @@ def get_huggingface_dataset2(num_examples = 3000):
 
 
 # get_dataset()
+
+
+
+def get_huggingface_dataset3(num_examples = 3000):
+    layout_data, _ = get_examples_layout_only()
+    layout_data = layout_data[:min(num_examples, len(layout_data))]
+    tokenizer = transformers.LlamaTokenizer.from_pretrained("/data/mengke")
+    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    data = []
+    features = []
+    for idx in range(len(layout_data)):
+        dp = {}
+        if idx % 100 == 0:
+            print(f"processing {idx} / {len(layout_data)}")
+        layout_tokens = []
+        qa_tokens = []
+        layout_words = []
+        qa_words = []
+
+        bboxes = []
+        words = []
+    
+        # process layout data
+        layout_len_limit = 50
+        layout_len_count = 0
+        words_layout_info = []
+        for line in layout_data[idx]:
+            _, token, y1, x1, y2, x2, w, h = line.split("\t")
+            layout_len_count += 1 
+            bbox = [float(x1) / float(w),float(y1) / float(h),float(x2) / float(w),float(y2) / float(h)]
+            bbox = [int(x * 1000) for x in bbox]
+            words_layout_info.append([token] + bbox)
+            bboxes.append(bbox)
+            if layout_len_count > layout_len_limit:
+                break
+        
+        label_words = " ".join([word[0] for word in words_layout_info])
+        # words_layout_info_split1 = words_layout_info[:len(words_layout_info)//2]
+        # words_layout_info_split2 = words_layout_info[len(words_layout_info)//2:]
+        random.shuffle(words_layout_info)
+        # words_layout_info_split2.sort(key=lambda x: x[0])
+        # words_layout_info_split = words_layout_info_split1 + words_layout_info_split2
+        layout_info = map(get_word_formatted, words_layout_info)
+        layout_info = ',\n'.join(layout_info)
+        prompt = f"Given the following sequence of information composed of a word and its corresponding bounding box of the format '[word] <x1, y1, x2, y2>', recover the original reading order:"
+        inputs = layout_info
+        '''
+        label_words = " ".join([word[0] for word in words_layout_info])
+        inputs = [word[0] for word in words_layout_info]
+        random.shuffle(inputs)
+        inputs = " ".join(inputs)
+        prompt = f"Given the following words of a text in a random order, recover its original order."
+        '''
+        dp["instruction"] = prompt
+        dp["input"] = inputs
+        dp["output"] = label_words
+        # print(dp)
+        data.append(dp)
+    import json
+    with open("reading_bank_ro_instruction_dataset_with_input.json", "w") as f:
+        json.dump(data, f)
+
+    from datasets import Dataset, DatasetDict
+    import pandas as pd
+    # Load your data from the JSON file
+    with open("reading_bank_ro_instruction_dataset_with_input.json", "r") as f:
+        data = json.load(f)
+    
+    
+    # Convert your data to a pandas DataFrame
+    df = pd.DataFrame(data)
+
+    # Convert the DataFrame to a Dataset object
+    dataset = Dataset.from_pandas(df)
+    # Register your dataset with a name, e.g., "my_dataset"
+    datasets_dict = DatasetDict({"train": dataset})
+    return datasets_dict
+    # from datasets import save_to_disk
+    # save_to_disk(datasets_dict, dataset_config_name="my_dataset")
