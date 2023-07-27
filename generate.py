@@ -29,13 +29,21 @@ def main(
     lora_weights: str = "tloen/alpaca-lora-7b",
     prompt_template: str = "",  # The prompt template to use, will default to alpaca.
     server_name: str = "0.0.0.0",  # Allows to listen on all interfaces by providing '0.
-    share_gradio: bool = False,
+    share_gradio: bool = True,
 ):
     base_model = base_model or os.environ.get("BASE_MODEL", "")
+    print("lora weights: ", lora_weights)
     assert (
         base_model
     ), "Please specify a --base_model, e.g. --base_model='huggyllama/llama-7b'"
 
+    '''
+    import pickle
+    f = open("my_device_map", "rb")
+    device_map = pickle.load(f)
+    for k,v in device_map.items():
+        device_map[k] = 1 # torch.cuda.current_device()
+    '''
     prompter = Prompter(prompt_template)
     tokenizer = LlamaTokenizer.from_pretrained(base_model)
     if device == "cuda":
@@ -97,11 +105,11 @@ def main(
     ):
         prompt = prompter.generate_prompt(instruction, input)
         inputs = tokenizer(prompt, return_tensors="pt")
-        input_ids = inputs["input_ids"].to(device)
+        input_ids = inputs["input_ids"].to(model.device)
         generation_config = GenerationConfig(
             temperature=temperature,
             top_p=top_p,
-            top_k=top_k,
+            top_k=top_k,                                                                                                                 
             num_beams=num_beams,
             **kwargs,
         )

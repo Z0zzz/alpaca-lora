@@ -24,6 +24,7 @@ from transformers import LlamaForCausalLM, LlamaTokenizer
 
 from utils.prompter import Prompter
 
+from read_bank_dataset_reading_order import get_huggingface_dataset
 
 def train(
     # model/data params
@@ -35,8 +36,8 @@ def train(
     micro_batch_size: int = 4,
     num_epochs: int = 3,
     learning_rate: float = 3e-4,
-    cutoff_len: int = 256,
-    val_set_size: int = 2000,
+    cutoff_len: int = 2048,
+    val_set_size: int = 300,
     # lora hyperparams
     lora_r: int = 8,
     lora_alpha: int = 16,
@@ -96,7 +97,7 @@ def train(
     if ddp:
         device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
         gradient_accumulation_steps = gradient_accumulation_steps // world_size
-
+    
     # Check if parameter passed or if set within environ
     use_wandb = len(wandb_project) > 0 or (
         "WANDB_PROJECT" in os.environ and len(os.environ["WANDB_PROJECT"]) > 0
@@ -113,7 +114,7 @@ def train(
         base_model,
         load_in_8bit=True,
         torch_dtype=torch.float16,
-        device_map=device_map,
+        device_map="auto",
     )
 
     tokenizer = LlamaTokenizer.from_pretrained(base_model)
@@ -151,7 +152,10 @@ def train(
             data_point["input"],
             data_point["output"],
         )
+        # print("user prompt: ", full_prompt)
         tokenized_full_prompt = tokenize(full_prompt)
+        # print(tokenizer.decode(tokenized_full_prompt["input_ids"]))
+        # print("tokenized full prompt: ", tokenized_full_prompt)
         if not train_on_inputs:
             user_prompt = prompter.generate_prompt(
                 data_point["instruction"], data_point["input"]
@@ -182,11 +186,24 @@ def train(
         task_type="CAUSAL_LM",
     )
     model = get_peft_model(model, config)
-
+    print("model device map: ", model.hf_device_map)
+    '''
     if data_path.endswith(".json") or data_path.endswith(".jsonl"):
-        data = load_dataset("json", data_files=data_path)
+        data = load_dataset("json", data_files=data_path, split=f"train[:100]")
     else:
-        data = load_dataset(data_path)
+        data = load_dataset("wikitext", "wikitext-103-v1", split=f"train[:100]")
+    '''
+   
+    import json
+    import pandas as pd
+    from datasets import Dataset
+    with open("reading_bank_ro_instruction_dataset.json", "r") as f:
+        data = json.load(f)
+    # Convert your data to a pandas DataFrame
+    df = pd.DataFrame(data)
+    # Convert the DataFrame to a Dataset object
+    data = Dataset.from_pandas(df)
+    
 
     if resume_from_checkpoint:
         # Check the available weights and load them
@@ -209,11 +226,12 @@ def train(
             print(f"Checkpoint {checkpoint_name} not found")
 
     model.print_trainable_parameters()  # Be more transparent about the % of trainable params.
-
+    
     if val_set_size > 0:
-        train_val = data["train"].train_test_split(
+        train_val = data.train_test_split(
             test_size=val_set_size, shuffle=True, seed=42
         )
+        
         train_data = (
             train_val["train"].shuffle().map(generate_and_tokenize_prompt)
         )
@@ -223,29 +241,31 @@ def train(
     else:
         train_data = data["train"].shuffle().map(generate_and_tokenize_prompt)
         val_data = None
-
+    
+    print(train_data[0])
+    '''
     if not ddp and torch.cuda.device_count() > 1:
         # keeps Trainer from trying its own DataParallelism when more than 1 gpu is available
         model.is_parallelizable = True
         model.model_parallel = True
-
+    '''
     trainer = transformers.Trainer(
         model=model,
         train_dataset=train_data,
         eval_dataset=val_data,
         args=transformers.TrainingArguments(
             per_device_train_batch_size=micro_batch_size,
-            gradient_accumulation_steps=gradient_accumulation_steps,
+            gradient_accumulation_steps=1,
             warmup_steps=100,
             num_train_epochs=num_epochs,
             learning_rate=learning_rate,
             fp16=True,
-            logging_steps=10,
+            logging_steps=100,
             optim="adamw_torch",
             evaluation_strategy="steps" if val_set_size > 0 else "no",
             save_strategy="steps",
-            eval_steps=200 if val_set_size > 0 else None,
-            save_steps=200,
+            eval_steps=125 if val_set_size > 0 else None,
+            save_steps=250,
             output_dir=output_dir,
             save_total_limit=3,
             load_best_model_at_end=True if val_set_size > 0 else False,
