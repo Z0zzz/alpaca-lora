@@ -310,7 +310,7 @@ def get_huggingface_dataset(num_examples = 8000):
             bboxes.append(bbox)
             if layout_len_count > layout_len_limit:
                 break
-        ''''
+        
         label_words = " ".join([word[0] for word in words_layout_info])
         # words_layout_info_split1 = words_layout_info[:len(words_layout_info)//2]
         # words_layout_info_split2 = words_layout_info[len(words_layout_info)//2:]
@@ -326,9 +326,9 @@ def get_huggingface_dataset(num_examples = 8000):
         random.shuffle(inputs)
         inputs = " ".join(inputs)
         prompt = f"Given the following words of a text in a random order, recover its original order."
-
+        '''
         dp["instruction"] = prompt
-        dp["input"] = inputs
+        dp["input"] = None
         dp["output"] = label_words
         # print(dp)
         data.append(dp)
